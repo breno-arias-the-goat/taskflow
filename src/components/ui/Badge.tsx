@@ -1,24 +1,25 @@
 type V = 'todo' | 'in_progress' | 'done' | 'blocked' | 'low' | 'medium' | 'high' | 'urgent'
 
-const STYLES: Record<V, string> = {
-  todo:        'bg-[oklch(55%_0.01_260_/_15%)] text-[var(--color-todo)]',
-  in_progress: 'bg-[oklch(70%_0.15_230_/_15%)] text-[var(--color-in-progress)]',
-  done:        'bg-[oklch(70%_0.15_150_/_15%)] text-[var(--color-done)]',
-  blocked:     'bg-[oklch(65%_0.18_25_/_15%)] text-[var(--color-blocked)]',
-  low:         'bg-[oklch(40%_0.008_260_/_15%)] text-[var(--color-text-muted)]',
-  medium:      'bg-[oklch(75%_0.15_80_/_15%)] text-[var(--color-warning)]',
-  high:        'bg-[var(--color-accent-subtle)] text-[var(--color-accent)]',
-  urgent:      'bg-[oklch(65%_0.18_25_/_15%)] text-[var(--color-danger)]',
+const STYLES: Record<V, { bg: string; color: string }> = {
+  todo:        { bg: 'rgba(148,148,168,0.12)', color: '#9494a8' },
+  in_progress: { bg: 'rgba(96,165,250,0.12)',  color: '#60a5fa' },
+  done:        { bg: 'rgba(52,211,153,0.12)',  color: '#34d399' },
+  blocked:     { bg: 'rgba(248,113,113,0.12)', color: '#f87171' },
+  low:         { bg: 'rgba(58,58,74,0.5)',     color: '#5c5c70' },
+  medium:      { bg: 'rgba(96,165,250,0.12)',  color: '#60a5fa' },
+  high:        { bg: 'rgba(251,191,36,0.12)',  color: '#fbbf24' },
+  urgent:      { bg: 'rgba(248,113,113,0.12)', color: '#f87171' },
 }
 
 const LABELS: Record<V, string> = {
-  todo: 'A fazer', in_progress: 'Em progresso', done: 'Concluído', blocked: 'Bloqueado',
+  todo: 'A fazer', in_progress: 'Em andamento', done: 'Concluído', blocked: 'Bloqueado',
   low: 'Baixa', medium: 'Média', high: 'Alta', urgent: 'Urgente',
 }
 
 export function Badge({ variant }: { variant: V }) {
+  const s = STYLES[variant]
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STYLES[variant]}`}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: '100px', fontSize: '11px', fontWeight: 500, background: s.bg, color: s.color, letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>
       {LABELS[variant]}
     </span>
   )

@@ -1,121 +1,195 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
-import { Plus, FileText } from 'lucide-react'
-import { format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
-import { useAuthStore } from '@/store/auth'
 import { useWorkspaceStore } from '@/store/workspace'
-import { createNote, updateNote } from '@/lib/db'
+import { useAuthStore } from '@/store/auth'
+import { createNote, updateNote, deleteNote } from '@/lib/db'
 import type { Note } from '@/lib/types'
 
-const EDITOR_CSS = `
-  .ProseMirror { outline: none; min-height: 300px; }
-  .ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--color-text-muted); pointer-events: none; float: left; height: 0; }
-  .ProseMirror h1,.ProseMirror h2,.ProseMirror h3 { color: var(--color-text-primary); font-family: var(--font-display); font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.5rem; }
-  .ProseMirror h1 { font-size: 1.5rem; } .ProseMirror h2 { font-size: 1.25rem; } .ProseMirror h3 { font-size: 1.1rem; }
-  .ProseMirror p { color: var(--color-text-secondary); margin-bottom: 0.75rem; line-height: 1.7; }
-  .ProseMirror strong { color: var(--color-text-primary); }
-  .ProseMirror ul,.ProseMirror ol { color: var(--color-text-secondary); padding-left: 1.5rem; margin-bottom: 0.75rem; }
-  .ProseMirror blockquote { border-left: 3px solid var(--color-accent); padding-left: 1rem; color: var(--color-text-muted); margin: 1rem 0; }
-  .ProseMirror code { background: var(--color-bg-elevated); padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-family: var(--font-mono); font-size: 0.875em; color: var(--color-accent); }
-`
+export default function NotesView() {
+  const { notes, activeWorkspaceId } = useWorkspaceStore()
+  const { user } = useAuthStore()
+  const uid = user?.uid ?? ''
 
-function NoteEditor({ note, onUpdate }: { note: Note; onUpdate: (id: string, d: Partial<Note>) => void }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [title, setTitle]           = useState('')
+  const [saving, setSaving]         = useState(false)
+  const [savedAt, setSavedAt]       = useState<Date | null>(null)
+
+  const note = notes.find(n => n.id === selectedId)
+
   const editor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: 'Escreva algo...' })],
-    content: note.content,
-    onUpdate: ({ editor }) => onUpdate(note.id, { content: editor.getHTML() }),
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder: 'Escreva algo...' }),
+    ],
+    content: '',
+    onUpdate: () => setSaving(true),
   })
 
+  // Sync editor content when switching notes
   useEffect(() => {
-    if (editor && note.id) editor.commands.setContent(note.content ?? '')
-  }, [note.id])
+    if (!note) { editor?.commands.setContent(''); setTitle(''); return }
+    setTitle(note.title)
+    if (editor && note.content !== editor.getHTML()) {
+      editor.commands.setContent(note.content ?? '')
+    }
+  }, [note?.id])
 
-  return <><style>{EDITOR_CSS}</style><EditorContent editor={editor} /></>
-}
-
-export function NotesView() {
-  const { user }  = useAuthStore()
-  const { notes, activeWorkspaceId } = useWorkspaceStore()
-  const [activeId, setActiveId]       = useState<string | null>(null)
-  const [pending, setPending]         = useState<Record<string, Partial<Note>>>({})
-
-  const active = notes.find(n => n.id === activeId)
-
-  useEffect(() => { if (notes.length > 0 && !activeId) setActiveId(notes[0].id) }, [notes])
-
+  // Auto-save
   useEffect(() => {
+    if (!selectedId || !saving || !uid) return
     const t = setTimeout(async () => {
-      if (!user || !Object.keys(pending).length) return
-      for (const [id, data] of Object.entries(pending)) await updateNote(user.uid, id, data)
-      setPending({})
-    }, 1200)
+      await updateNote(uid, selectedId, { title: title || 'Sem título', content: editor?.getHTML() ?? '' })
+      setSaving(false)
+      setSavedAt(new Date())
+    }, 900)
     return () => clearTimeout(t)
-  }, [pending, user])
+  }, [title, saving, selectedId])
 
-  const onUpdate = useCallback((id: string, d: Partial<Note>) => setPending(p => ({ ...p, [id]: { ...p[id], ...d } })), [])
+  // Title change triggers save
+  useEffect(() => {
+    if (selectedId) setSaving(true)
+  }, [title])
 
-  const handleNew = async () => {
-    if (!user || !activeWorkspaceId) return
-    const n = await createNote(user.uid, { workspaceId: activeWorkspaceId, projectId: null, title: 'Nova nota', content: '', tags: [], pinned: false })
-    setActiveId(n.id)
+  async function handleNew() {
+    if (!uid || !activeWorkspaceId) return
+    const n = await createNote(uid, { workspaceId: activeWorkspaceId, title: 'Sem título', content: '', tags: [], pinned: false })
+    setSelectedId(n.id)
+    setTimeout(() => {
+      const el = document.getElementById('note-title') as HTMLInputElement | null
+      el?.focus(); el?.select()
+    }, 80)
   }
 
-  const sorted = [...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt)
+  async function handleDelete(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    await deleteNote(uid, id)
+    if (selectedId === id) setSelectedId(null)
+  }
+
+  const sorted = [...notes].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1
+    if (!a.pinned && b.pinned) return 1
+    return b.updatedAt - a.updatedAt
+  })
 
   return (
-    <div className="flex h-full -m-6 overflow-hidden">
-      <div className="w-64 shrink-0 border-r flex flex-col" style={{ background: 'var(--color-bg-surface)', borderColor: 'var(--color-border)' }}>
-        <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
-          <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Notas</span>
-          <button onClick={handleNew} className="p-1.5 rounded cursor-pointer transition-colors" style={{ color: 'var(--color-text-muted)' }}><Plus size={15} /></button>
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', background: 'var(--n-bg)' }}>
+      {/* Notes sidebar */}
+      <div style={{ width: '234px', flexShrink: 0, borderRight: `1px solid var(--n-border)`, display: 'flex', flexDirection: 'column', background: 'var(--n-bg2)', overflow: 'hidden' }}>
+        {/* Header */}
+        <div style={{ padding: '14px 12px 8px', borderBottom: `1px solid var(--n-border)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--n-text3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notas</span>
+          <button onClick={handleNew}
+            style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--n-text2)', borderRadius: '4px', fontSize: '18px', transition: 'background 0.1s' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--n-hover)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            title="Nova nota"
+          >+</button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {sorted.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-32 gap-2">
-              <FileText size={24} style={{ color: 'var(--color-text-muted)' }} />
-              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Nenhuma nota ainda</p>
+
+        {/* List */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '4px' }}>
+          {sorted.length === 0 ? (
+            <div style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--n-text3)', fontSize: '13px' }}>
+              <div style={{ fontSize: '22px', marginBottom: '6px' }}>📝</div>
+              Nenhuma nota
             </div>
-          )}
-          {sorted.map(n => (
-            <button key={n.id} onClick={() => setActiveId(n.id)}
-                    className="w-full text-left p-3 rounded-lg transition-colors cursor-pointer"
-                    style={{ background: activeId === n.id ? 'var(--color-accent-subtle)' : 'transparent', border: activeId === n.id ? '1px solid oklch(75% 0.18 65 / 30%)' : '1px solid transparent' }}>
-              <p className="text-sm font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>{n.title || 'Sem título'}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                {format(new Date(n.updatedAt), "dd MMM 'às' HH:mm", { locale: ptBR })}
-              </p>
-            </button>
+          ) : sorted.map(n => (
+            <NoteItem
+              key={n.id} note={n}
+              isSelected={n.id === selectedId}
+              onClick={() => setSelectedId(n.id)}
+              onDelete={e => handleDelete(n.id, e)}
+            />
           ))}
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {active ? (
-          <>
-            <div className="flex items-center gap-2 px-8 py-3 border-b" style={{ borderColor: 'var(--color-border)' }}>
-              <input className="flex-1 bg-transparent text-lg font-bold outline-none"
-                     style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text-primary)' }}
-                     placeholder="Título da nota" value={active.title}
-                     onChange={e => onUpdate(active.id, { title: e.target.value })} />
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                {Object.keys(pending).length > 0 ? 'Salvando...' : 'Salvo ✓'}
-              </span>
-            </div>
-            <div className="flex-1 overflow-y-auto px-8 py-6">
-              <NoteEditor key={active.id} note={active} onUpdate={onUpdate} />
-            </div>
-          </>
+      {/* Editor */}
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {!note ? (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--n-text3)', gap: '10px' }}>
+            <div style={{ fontSize: '44px' }}>📝</div>
+            <p style={{ fontSize: '15px', margin: 0, color: 'var(--n-text2)' }}>Selecione uma nota ou crie uma nova</p>
+            <button onClick={handleNew}
+              style={{ marginTop: '4px', padding: '7px 14px', borderRadius: '6px', border: `1px solid var(--n-border)`, background: 'none', cursor: 'pointer', fontSize: '14px', color: 'var(--n-text)', fontFamily: 'inherit', transition: 'background 0.1s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--n-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >+ Nova nota</button>
+          </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3">
-            <FileText size={40} style={{ color: 'var(--color-text-muted)' }} />
-            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Selecione ou crie uma nota</p>
-            <button onClick={handleNew} className="text-sm cursor-pointer hover:underline" style={{ color: 'var(--color-accent)' }}>Criar primeira nota</button>
+          <div style={{ maxWidth: '700px', width: '100%', margin: '0 auto', padding: '36px 56px 56px' }}>
+            {/* Save status */}
+            <div style={{ height: '18px', display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
+              {saving
+                ? <span style={{ fontSize: '12px', color: 'var(--n-text3)' }}>Salvando...</span>
+                : savedAt
+                  ? <span style={{ fontSize: '12px', color: 'var(--n-text3)' }}>Salvo ✓</span>
+                  : null
+              }
+            </div>
+
+            {/* Title */}
+            <input
+              id="note-title" type="text"
+              value={title} onChange={e => setTitle(e.target.value)}
+              placeholder="Sem título"
+              style={{ width: '100%', border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: '30px', fontWeight: 700, color: 'var(--n-text)', background: 'none', letterSpacing: '-0.01em', marginBottom: '20px', padding: 0, boxSizing: 'border-box' }}
+            />
+
+            {/* Editor */}
+            <div style={{ fontSize: '15px', lineHeight: 1.7, color: 'var(--n-text)' }}>
+              <EditorContent editor={editor} />
+            </div>
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+function NoteItem({ note, isSelected, onClick, onDelete }: {
+  note: Note; isSelected: boolean
+  onClick: () => void; onDelete: (e: React.MouseEvent) => void
+}) {
+  const [hov, setHov] = useState(false)
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        width: '100%', padding: '8px 10px', borderRadius: '5px', border: 'none',
+        cursor: 'pointer', textAlign: 'left', marginBottom: '1px',
+        background: isSelected ? 'var(--n-active)' : hov ? 'var(--n-hover)' : 'none',
+        display: 'flex', alignItems: 'flex-start', gap: '7px',
+        position: 'relative', transition: 'background 0.08s', fontFamily: 'inherit',
+      }}
+    >
+      <span style={{ fontSize: '14px', lineHeight: 1.4, flexShrink: 0, marginTop: '1px' }}>
+        {note.pinned ? '📌' : '📄'}
+      </span>
+      <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: '13px', fontWeight: isSelected ? 500 : 400, color: 'var(--n-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {note.title || 'Sem título'}
+        </p>
+        <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--n-text3)' }}>
+          {new Date(note.updatedAt).toLocaleDateString('pt-BR')}
+        </p>
+      </div>
+
+      {hov && (
+        <button
+          onClick={onDelete}
+          style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'var(--n-bg4)', cursor: 'pointer', borderRadius: '3px', color: 'var(--n-text3)', fontSize: '12px', lineHeight: 1 }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--n-red-bg)'; e.currentTarget.style.color = 'var(--n-red)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--n-bg4)'; e.currentTarget.style.color = 'var(--n-text3)' }}
+        >×</button>
+      )}
+    </button>
   )
 }

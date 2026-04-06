@@ -50,6 +50,10 @@ export async function updateNote(uid: string, noteId: string, data: Partial<Note
   await updateDoc(doc(notesRef(uid), noteId), { ...data, updatedAt: now() })
 }
 
+export async function deleteNote(uid: string, noteId: string) {
+  await deleteDoc(doc(notesRef(uid), noteId))
+}
+
 export function listenNotes(uid: string, wsId: string, cb: (n: Note[]) => void) {
   const q = query(notesRef(uid), where('workspaceId', '==', wsId), orderBy('createdAt', 'desc'))
   return onSnapshot(q, snap => cb(snap.docs.map(d => d.data() as Note)))

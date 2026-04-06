@@ -1,52 +1,42 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useAuthStore } from '@/store/auth'
 import { useWorkspaceStore } from '@/store/workspace'
-import { Sidebar } from '@/components/layout/Sidebar'
-import { Topbar } from '@/components/layout/Topbar'
-import { BoardView } from '@/views/BoardView'
-import { ListView } from '@/views/ListView'
-import { CalendarView } from '@/views/CalendarView'
-import { NotesView } from '@/views/NotesView'
-import { Loader2 } from 'lucide-react'
+import Sidebar from '@/components/layout/Sidebar'
+import Topbar from '@/components/layout/Topbar'
+import BoardView from '@/views/BoardView'
+import ListView from '@/views/ListView'
+import CalendarView from '@/views/CalendarView'
+import NotesView from '@/views/NotesView'
 
 export default function AppPage() {
   const { user } = useAuthStore()
-  const { loadWorkspaces, loadTasks, loadNotes, activeWorkspaceId, activeView } = useWorkspaceStore()
-  const [ready, setReady] = useState(false)
-  const newTaskFnRef = useRef<(() => void) | null>(null)
+  const { loadWorkspaces, loadTasks, loadNotes, activeView, activeWorkspaceId, sidebarOpen, toggleSidebar } = useWorkspaceStore()
+  const newTaskRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     if (!user) return
     const unsub = loadWorkspaces(user.uid)
-    return unsub
-  }, [user])
+    return () => unsub?.()
+  }, [user?.uid])
 
   useEffect(() => {
     if (!user || !activeWorkspaceId) return
     const u1 = loadTasks(user.uid)
     const u2 = loadNotes(user.uid)
-    setReady(true)
-    return () => { u1(); u2() }
-  }, [user, activeWorkspaceId])
-
-  if (!ready) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--color-bg-base)' }}>
-      <div className="flex flex-col items-center gap-3">
-        <Loader2 size={28} className="animate-spin" style={{ color: 'var(--color-accent)' }} />
-        <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Carregando workspace...</p>
-      </div>
-    </div>
-  )
+    return () => { u1?.(); u2?.() }
+  }, [user?.uid, activeWorkspaceId])
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--color-bg-base)' }}>
-      <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0">
-        <Topbar onNewTask={() => newTaskFnRef.current?.()} />
-        <main className="flex-1 overflow-auto p-6">
-          {activeView === 'board'    && <BoardView onNewTaskRef={fn => { newTaskFnRef.current = fn }} />}
-          {activeView === 'list'     && <ListView />}
-          {activeView === 'calendar' && <CalendarView />}
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--n-bg)' }}>
+      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} />
+
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
+        <Topbar newTaskRef={newTaskRef} sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
+
+        <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {activeView === 'board'    && <BoardView    newTaskRef={newTaskRef} />}
+          {activeView === 'list'     && <ListView     newTaskRef={newTaskRef} />}
+          {activeView === 'calendar' && <CalendarView newTaskRef={newTaskRef} />}
           {activeView === 'notes'    && <NotesView />}
         </main>
       </div>

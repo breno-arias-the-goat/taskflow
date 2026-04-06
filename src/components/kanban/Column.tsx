@@ -1,49 +1,72 @@
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { Plus } from 'lucide-react'
-import { TaskCard } from './TaskCard'
 import type { Task, TaskStatus } from '@/lib/types'
+import { STATUS_CONFIG } from '@/lib/types'
+import TaskCard from './TaskCard'
 
-const COL: Record<TaskStatus, { label: string; color: string }> = {
-  todo:        { label: 'A fazer',      color: 'var(--color-todo)' },
-  in_progress: { label: 'Em progresso', color: 'var(--color-in-progress)' },
-  done:        { label: 'Concluído',    color: 'var(--color-done)' },
-  blocked:     { label: 'Bloqueado',    color: 'var(--color-blocked)' },
+interface ColumnProps {
+  status: TaskStatus
+  tasks: Task[]
+  onAddTask: () => void
+  onEditTask: (task: Task) => void
 }
 
-export function Column({ status, tasks, onAdd, onEdit, onDelete }: {
-  status: TaskStatus; tasks: Task[]; onAdd: (s: TaskStatus) => void; onEdit: (t: Task) => void; onDelete: (id: string) => void
-}) {
+export default function Column({ status, tasks, onAddTask, onEditTask }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
-  const cfg = COL[status]
+  const cfg = STATUS_CONFIG[status]
 
   return (
-    <div className="flex flex-col w-72 shrink-0">
-      <div className="flex items-center justify-between mb-3 px-1">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full" style={{ background: cfg.color }} />
-          <span className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{cfg.label}</span>
-          <span className="text-xs px-1.5 py-0.5 rounded-full border" style={{ background: 'var(--color-bg-elevated)', borderColor: 'var(--color-border)', color: 'var(--color-text-muted)' }}>
-            {tasks.length}
-          </span>
-        </div>
-        <button onClick={() => onAdd(status)} className="p-1 rounded cursor-pointer transition-colors"
-                style={{ color: 'var(--color-text-muted)' }}>
-          <Plus size={15} />
-        </button>
+    <div style={{ width: '268px', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '10px' }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.dot, flexShrink: 0, display: 'block' }} />
+        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--n-text)', textTransform: 'uppercase', letterSpacing: '0.06em', flex: 1 }}>
+          {cfg.label}
+        </span>
+        <span style={{ fontSize: '12px', color: 'var(--n-text3)' }}>{tasks.length}</span>
       </div>
 
-      <div ref={setNodeRef} className="flex-1 min-h-24 rounded-xl p-2 space-y-2.5 transition-colors"
-           style={{ background: isOver ? 'var(--color-accent-subtle)' : 'oklch(14% 0.008 260 / 50%)', border: isOver ? '1px dashed var(--color-accent)' : '1px solid transparent' }}>
+      {/* Drop zone */}
+      <div
+        ref={setNodeRef}
+        style={{
+          flex: 1, minHeight: '60px',
+          borderRadius: '6px', padding: '3px',
+          display: 'flex', flexDirection: 'column', gap: '4px',
+          background: isOver ? 'var(--n-accent-light)' : 'transparent',
+          border: isOver ? `1.5px dashed var(--n-accent)` : '1.5px solid transparent',
+          transition: 'background 0.1s, border-color 0.1s',
+        }}
+      >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map(task => <TaskCard key={task.id} task={task} onEdit={onEdit} onDelete={onDelete} />)}
+          {tasks.map(task => (
+            <TaskCard key={task.id} task={task} onClick={() => onEditTask(task)} />
+          ))}
         </SortableContext>
-        {tasks.length === 0 && (
-          <div className="flex items-center justify-center h-20 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Arraste tarefas aqui
+
+        {tasks.length === 0 && !isOver && (
+          <div style={{ padding: '16px 8px', textAlign: 'center', color: 'var(--n-text3)', fontSize: '13px' }}>
+            Sem tarefas
           </div>
         )}
       </div>
+
+      {/* Add button */}
+      <button
+        onClick={onAddTask}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '5px',
+          padding: '6px 8px', marginTop: '4px',
+          border: 'none', background: 'none', cursor: 'pointer',
+          color: 'var(--n-text3)', fontSize: '13px', borderRadius: '5px',
+          width: '100%', transition: 'all 0.1s', fontFamily: 'inherit',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--n-hover)'; e.currentTarget.style.color = 'var(--n-text2)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--n-text3)' }}
+      >
+        <span style={{ fontSize: '15px', lineHeight: 1 }}>+</span>
+        Nova tarefa
+      </button>
     </div>
   )
 }

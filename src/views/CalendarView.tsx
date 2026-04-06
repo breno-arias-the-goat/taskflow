@@ -1,56 +1,145 @@
-import { useState } from 'react'
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, isSameDay } from 'date-fns'
+import { useState, useEffect } from 'react'
+import type { MutableRefObject } from 'react'
+import {
+  format, startOfMonth, endOfMonth, eachDayOfInterval,
+  startOfWeek, endOfWeek, isSameMonth, isSameDay, isToday,
+  addMonths, subMonths,
+} from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useWorkspaceStore } from '@/store/workspace'
+import type { Task } from '@/lib/types'
+import { PRIORITY_CONFIG } from '@/lib/types'
+import TaskModal from '@/components/kanban/TaskModal'
 
-const DOT: Record<string, string> = { low: 'var(--color-text-muted)', medium: 'var(--color-warning)', high: 'var(--color-accent)', urgent: 'var(--color-danger)' }
+const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-export function CalendarView() {
-  const { tasks } = useWorkspaceStore()
+export default function CalendarView({ newTaskRef }: { newTaskRef: MutableRefObject<(() => void) | null> }) {
+  const { tasks, activeWorkspaceId } = useWorkspaceStore()
   const [current, setCurrent] = useState(new Date())
-  const days = eachDayOfInterval({ start: startOfMonth(current), end: endOfMonth(current) })
-  const offset = (startOfMonth(current).getDay() + 6) % 7
+  const [modalTask, setModal] = useState<Task | Partial<Task> | null>(null)
+
+  useEffect(() => {
+    newTaskRef.current = () => setModal({ status: 'todo', priority: 'medium', tags: [], dueDate: Date.now() })
+  }, [])
+
+  const monthStart = startOfMonth(current)
+  const days = eachDayOfInterval({ start: startOfWeek(monthStart), end: endOfWeek(endOfMonth(current)) })
+
+  const tasksForDay = (day: Date) => tasks.filter(t => t.dueDate && isSameDay(new Date(t.dueDate), day))
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-bold capitalize" style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text-primary)' }}>
-          {format(current, 'MMMM yyyy', { locale: ptBR })}
-        </h2>
-        <div className="flex gap-1">
-          <button onClick={() => setCurrent(d => new Date(d.getFullYear(), d.getMonth() - 1))} className="p-2 rounded-lg cursor-pointer transition-colors" style={{ color: 'var(--color-text-secondary)' }}><ChevronLeft size={16} /></button>
-          <button onClick={() => setCurrent(new Date())} className="px-3 py-1.5 text-xs rounded-lg cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>Hoje</button>
-          <button onClick={() => setCurrent(d => new Date(d.getFullYear(), d.getMonth() + 1))} className="p-2 rounded-lg cursor-pointer transition-colors" style={{ color: 'var(--color-text-secondary)' }}><ChevronRight size={16} /></button>
+    <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--n-bg)' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+        <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--n-text)', margin: 0, letterSpacing: '-0.01em', flex: 1 }}>
+          Calendário
+        </h1>
+        <button onClick={() => setCurrent(new Date())} style={pillBtnStyle}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--n-hover)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+        >Hoje</button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <NavBtn onClick={() => setCurrent(d => subMonths(d, 1))}>‹</NavBtn>
+          <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--n-text)', minWidth: '144px', textAlign: 'center' }}>
+            {format(current, 'MMMM yyyy', { locale: ptBR })}
+          </span>
+          <NavBtn onClick={() => setCurrent(d => addMonths(d, 1))}>›</NavBtn>
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-px rounded-xl overflow-hidden border" style={{ background: 'var(--color-border)', borderColor: 'var(--color-border)' }}>
-        {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(d => (
-          <div key={d} className="px-3 py-2 text-xs font-semibold text-center" style={{ background: 'var(--color-bg-surface)', color: 'var(--color-text-muted)' }}>{d}</div>
-        ))}
-        {Array.from({ length: offset }).map((_, i) => <div key={`e${i}`} className="min-h-24" style={{ background: 'var(--color-bg-base)' }} />)}
-        {days.map(day => {
-          const dt = tasks.filter(t => t.dueDate && isSameDay(new Date(t.dueDate), day))
-          return (
-            <div key={day.toISOString()} className="min-h-24 p-2 transition-colors" style={{ background: 'var(--color-bg-surface)' }}>
-              <div className="w-6 h-6 flex items-center justify-center text-xs font-medium rounded-full mb-1.5"
-                   style={{ background: isToday(day) ? 'var(--color-accent)' : 'transparent', color: isToday(day) ? 'var(--color-bg-base)' : 'var(--color-text-secondary)' }}>
-                {format(day, 'd')}
+      {/* Grid */}
+      <div style={{ border: `1px solid var(--n-border)`, borderRadius: '8px', overflow: 'hidden' }}>
+        {/* Weekday row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', background: 'var(--n-bg2)', borderBottom: `1px solid var(--n-border)` }}>
+          {WEEKDAYS.map(d => (
+            <div key={d} style={{ padding: '8px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'var(--n-text3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{d}</div>
+          ))}
+        </div>
+
+        {/* Days */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+          {days.map((day, idx) => {
+            const dayTasks = tasksForDay(day)
+            const inMonth  = isSameMonth(day, current)
+            const today    = isToday(day)
+            const col      = (idx + 1) % 7 !== 0
+            const row      = idx < days.length - 7
+
+            return (
+              <div
+                key={day.toISOString()}
+                onClick={() => setModal({ status: 'todo', priority: 'medium', tags: [], dueDate: day.getTime() })}
+                style={{
+                  minHeight: '96px', padding: '8px',
+                  borderRight:  col ? `1px solid var(--n-border)` : 'none',
+                  borderBottom: row ? `1px solid var(--n-border)` : 'none',
+                  background: today ? 'var(--n-accent-light)' : 'var(--n-bg)',
+                  opacity: inMonth ? 1 : 0.38,
+                  cursor: 'pointer',
+                  transition: 'background 0.08s',
+                }}
+                onMouseEnter={e => { if (!today) e.currentTarget.style.background = 'var(--n-hover)' }}
+                onMouseLeave={e => { if (!today) e.currentTarget.style.background = 'var(--n-bg)' }}
+              >
+                {/* Day number */}
+                <div style={{
+                  width: 24, height: 24, borderRadius: '50%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '13px', marginBottom: '4px',
+                  fontWeight: today ? 700 : 400,
+                  background: today ? 'var(--n-accent)' : 'none',
+                  color: today ? 'white' : inMonth ? 'var(--n-text)' : 'var(--n-text3)',
+                }}>
+                  {format(day, 'd')}
+                </div>
+
+                {/* Task chips */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {dayTasks.slice(0, 3).map(task => (
+                    <div
+                      key={task.id}
+                      onClick={e => { e.stopPropagation(); setModal(task) }}
+                      style={{
+                        padding: '2px 6px', borderRadius: '3px', fontSize: '11px',
+                        background: PRIORITY_CONFIG[task.priority].bg,
+                        color: PRIORITY_CONFIG[task.priority].color,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        cursor: 'pointer', fontWeight: 500,
+                      }}
+                    >
+                      {task.title}
+                    </div>
+                  ))}
+                  {dayTasks.length > 3 && (
+                    <div style={{ fontSize: '11px', color: 'var(--n-text3)', padding: '0 4px' }}>+{dayTasks.length - 3} mais</div>
+                  )}
+                </div>
               </div>
-              <div className="space-y-1">
-                {dt.slice(0, 3).map(t => (
-                  <div key={t.id} className="flex items-center gap-1.5 text-xs truncate">
-                    <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: DOT[t.priority] }} />
-                    <span className="truncate" style={{ color: t.status === 'done' ? 'var(--color-text-muted)' : 'var(--color-text-primary)', textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{t.title}</span>
-                  </div>
-                ))}
-                {dt.length > 3 && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>+{dt.length - 3} mais</p>}
-              </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
+
+      {modalTask && (
+        <TaskModal task={modalTask} workspaceId={activeWorkspaceId ?? ''} onClose={() => setModal(null)} />
+      )}
     </div>
   )
+}
+
+function NavBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '5px', border: `1px solid var(--n-border)`, background: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--n-text)', fontFamily: 'inherit', lineHeight: 1 }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'var(--n-hover)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+    >{children}</button>
+  )
+}
+
+const pillBtnStyle: React.CSSProperties = {
+  padding: '5px 11px', borderRadius: '6px',
+  border: `1px solid var(--n-border)`, background: 'none',
+  cursor: 'pointer', fontSize: '13px', color: 'var(--n-text)', fontFamily: 'inherit',
+  transition: 'background 0.1s',
 }

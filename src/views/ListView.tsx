@@ -1,83 +1,209 @@
-import { useState } from 'react'
-import { format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
-import { Calendar, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-react'
-import { useAuthStore } from '@/store/auth'
+import { useState, useEffect } from 'react'
+import type { MutableRefObject } from 'react'
 import { useWorkspaceStore } from '@/store/workspace'
-import { createTask, updateTask, deleteTask } from '@/lib/db'
-import { Badge } from '@/components/ui/Badge'
-import { TaskModal } from '@/components/kanban/TaskModal'
+import { useAuthStore } from '@/store/auth'
+import { updateTask, deleteTask } from '@/lib/db'
+import { formatDate, isOverdue } from '@/lib/utils'
 import type { Task, TaskStatus } from '@/lib/types'
+import { STATUS_CONFIG, PRIORITY_CONFIG } from '@/lib/types'
+import TaskModal from '@/components/kanban/TaskModal'
 
-const ORDER: TaskStatus[] = ['todo', 'in_progress', 'blocked', 'done']
-
-export function ListView() {
-  const { user } = useAuthStore()
+export default function ListView({ newTaskRef }: { newTaskRef: MutableRefObject<(() => void) | null> }) {
   const { tasks, activeWorkspaceId } = useWorkspaceStore()
-  const [collapsed, setCollapsed]   = useState<Set<TaskStatus>>(new Set())
-  const [modalTask, setModalTask]   = useState<Partial<Task> | null>(null)
-  const [modalOpen, setModalOpen]   = useState(false)
+  const { user } = useAuthStore()
+  const uid = user?.uid ?? ''
 
-  const toggle = (s: TaskStatus) => setCollapsed(c => { const n = new Set(c); n.has(s) ? n.delete(s) : n.add(s); return n })
+  const [modalTask, setModalTask] = useState<Task | Partial<Task> | null>(null)
+  const [filter, setFilter]       = useState<TaskStatus | 'all'>('all')
+  const [sortBy, setSortBy]       = useState<'created' | 'due' | 'priority'>('created')
 
-  const handleSave = async (data: Partial<Task>) => {
-    if (!user || !activeWorkspaceId) return
-    if (modalTask?.id) await updateTask(user.uid, modalTask.id, data)
-    else await createTask(user.uid, { workspaceId: activeWorkspaceId, projectId: null, title: data.title ?? '', description: data.description ?? '', status: data.status ?? 'todo', priority: data.priority ?? 'medium', dueDate: data.dueDate ?? null, tags: [], order: tasks.length })
-  }
+  useEffect(() => {
+    newTaskRef.current = () => setModalTask({ status: 'todo', priority: 'medium', tags: [] })
+  }, [])
+
+  const filtered = tasks
+    .filter(t => filter === 'all' || t.status === filter)
+    .sort((a, b) => {
+      if (sortBy === 'due') {
+        if (!a.dueDate) return 1; if (!b.dueDate) return -1
+        return a.dueDate - b.dueDate
+      }
+      if (sortBy === 'priority') {
+        const ord = { urgent: 0, high: 1, medium: 2, low: 3 }
+        return ord[a.priority] - ord[b.priority]
+      }
+      return b.createdAt - a.createdAt
+    })
+
+  const FILTER_OPTS: { value: TaskStatus | 'all'; label: string }[] = [
+    { value: 'all',         label: 'Todas' },
+    { value: 'todo',        label: 'A fazer' },
+    { value: 'in_progress', label: 'Em andamento' },
+    { value: 'blocked',     label: 'Bloqueadas' },
+    { value: 'done',        label: 'Concluídas' },
+  ]
 
   return (
-    <>
-      <div className="max-w-3xl mx-auto space-y-2">
-        <button onClick={() => { setModalTask({ status: 'todo', workspaceId: activeWorkspaceId! }); setModalOpen(true) }}
-                className="flex items-center gap-2 w-full px-4 py-2.5 rounded-xl border border-dashed text-sm transition-all cursor-pointer"
-                style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-muted)' }}>
-          <Plus size={15} /> Nova tarefa
-        </button>
+    <div style={{ flex: 1, overflow: 'auto', background: 'var(--n-bg)' }}>
+      <div style={{ maxWidth: '860px', margin: '0 auto', padding: '24px 28px' }}>
+        {/* Header */}
+        <div style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--n-text)', margin: 0, letterSpacing: '-0.01em' }}>
+            Lista de Tarefas
+          </h1>
+          <p style={{ fontSize: '13px', color: 'var(--n-text2)', margin: '5px 0 0' }}>
+            {tasks.length} tarefas · {tasks.filter(t => t.status === 'done').length} concluídas
+          </p>
+        </div>
 
-        {ORDER.map(status => {
-          const grouped = tasks.filter(t => t.status === status).sort((a, b) => a.order - b.order)
-          const isCol = collapsed.has(status)
-          return (
-            <div key={status} className="rounded-xl overflow-hidden border" style={{ background: 'var(--color-bg-surface)', borderColor: 'var(--color-border)' }}>
-              <button onClick={() => toggle(status)} className="w-full flex items-center gap-2 px-4 py-2.5 transition-colors cursor-pointer"
-                      style={{ color: 'var(--color-text-secondary)' }}>
-                {isCol ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                <Badge variant={status} />
-                <span className="ml-auto text-xs" style={{ color: 'var(--color-text-muted)' }}>{grouped.length}</span>
-              </button>
-              {!isCol && grouped.map(task => (
-                <div key={task.id} className="flex items-center gap-3 px-4 py-3 border-t group cursor-pointer transition-colors"
-                     style={{ borderColor: 'var(--color-border-subtle)' }}
-                     onClick={() => { setModalTask(task); setModalOpen(true) }}>
-                  <button onClick={e => { e.stopPropagation(); if (user) updateTask(user.uid, task.id, { status: task.status === 'done' ? 'todo' : 'done' }) }}
-                          className="w-4 h-4 rounded border flex items-center justify-center shrink-0 cursor-pointer transition-all"
-                          style={{ background: task.status === 'done' ? 'var(--color-done)' : 'transparent', borderColor: task.status === 'done' ? 'var(--color-done)' : 'var(--color-border)' }}>
-                    {task.status === 'done' && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                  </button>
-                  <span className="flex-1 text-sm" style={{ color: task.status === 'done' ? 'var(--color-text-muted)' : 'var(--color-text-primary)', textDecoration: task.status === 'done' ? 'line-through' : 'none' }}>
-                    {task.title}
-                  </span>
-                  <Badge variant={task.priority} />
-                  {task.dueDate && (
-                    <span className="flex items-center gap-1 text-xs shrink-0"
-                          style={{ color: task.dueDate < Date.now() && task.status !== 'done' ? 'var(--color-danger)' : 'var(--color-text-muted)' }}>
-                      <Calendar size={11} />
-                      {format(new Date(task.dueDate), 'dd MMM', { locale: ptBR })}
-                    </span>
-                  )}
-                  <button onClick={e => { e.stopPropagation(); if (user) deleteTask(user.uid, task.id) }}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded transition-all cursor-pointer"
-                          style={{ color: 'var(--color-text-muted)' }}>
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
+        {/* Toolbar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+          {/* Filter pills */}
+          <div style={{ display: 'flex', gap: '2px', background: 'var(--n-bg2)', borderRadius: '6px', padding: '2px' }}>
+            {FILTER_OPTS.map(opt => {
+              const count = opt.value === 'all' ? undefined : tasks.filter(t => t.status === opt.value).length
+              const active = filter === opt.value
+              return (
+                <button key={opt.value} onClick={() => setFilter(opt.value)}
+                  style={{
+                    padding: '4px 9px', borderRadius: '4px', border: 'none',
+                    cursor: 'pointer', fontSize: '12px', fontFamily: 'inherit',
+                    fontWeight: active ? 500 : 400,
+                    background: active ? 'var(--n-bg)' : 'none',
+                    color: active ? 'var(--n-text)' : 'var(--n-text2)',
+                    boxShadow: active ? 'var(--n-shadow)' : 'none',
+                    transition: 'all 0.1s',
+                  }}
+                >
+                  {opt.label}
+                  {count !== undefined && <span style={{ marginLeft: '4px', color: 'var(--n-text3)' }}>{count}</span>}
+                </button>
+              )
+            })}
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Sort */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', color: 'var(--n-text2)' }}>
+            <span>Ordenar por:</span>
+            <select
+              value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}
+              style={{ border: `1px solid var(--n-border)`, borderRadius: '5px', background: 'var(--n-bg)', color: 'var(--n-text)', fontSize: '13px', padding: '4px 8px', outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              <option value="created">Criação</option>
+              <option value="due">Prazo</option>
+              <option value="priority">Prioridade</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div style={{ border: `1px solid var(--n-border)`, borderRadius: '8px', overflow: 'hidden' }}>
+          {/* Table header */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px 110px 100px 32px', padding: '7px 14px', background: 'var(--n-bg2)', borderBottom: `1px solid var(--n-border)`, fontSize: '11px', fontWeight: 600, color: 'var(--n-text3)', textTransform: 'uppercase', letterSpacing: '0.05em', gap: '8px', alignItems: 'center' }}>
+            <span>Nome</span>
+            <span>Status</span>
+            <span>Prioridade</span>
+            <span>Prazo</span>
+            <span />
+          </div>
+
+          {/* Rows */}
+          {filtered.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--n-text3)', fontSize: '14px' }}>
+              <div style={{ fontSize: '28px', marginBottom: '8px' }}>📭</div>
+              Nenhuma tarefa
             </div>
-          )
-        })}
+          ) : (
+            filtered.map((task, i) => (
+              <TaskRow
+                key={task.id} task={task}
+                isLast={i === filtered.length - 1}
+                onEdit={() => setModalTask(task)}
+                onToggle={() => updateTask(uid, task.id, { status: task.status === 'done' ? 'todo' : 'done' })}
+                onDelete={() => deleteTask(uid, task.id)}
+              />
+            ))
+          )}
+
+          {/* Add row */}
+          <button
+            onClick={() => setModalTask({ status: 'todo', priority: 'medium', tags: [] })}
+            style={{ width: '100%', padding: '10px 14px', border: 'none', borderTop: `1px solid var(--n-border)`, background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--n-text3)', fontSize: '13px', fontFamily: 'inherit', transition: 'background 0.1s' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--n-hover)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+          >
+            <span style={{ fontSize: '15px' }}>+</span> Nova tarefa
+          </button>
+        </div>
       </div>
-      {modalOpen && <TaskModal task={modalTask ?? {}} onSave={handleSave} onClose={() => setModalOpen(false)} />}
-    </>
+
+      {modalTask && (
+        <TaskModal task={modalTask} workspaceId={activeWorkspaceId ?? ''} onClose={() => setModalTask(null)} />
+      )}
+    </div>
+  )
+}
+
+function TaskRow({ task, isLast, onEdit, onToggle, onDelete }: {
+  task: Task; isLast: boolean
+  onEdit: () => void; onToggle: () => void; onDelete: () => void
+}) {
+  const [hov, setHov] = useState(false)
+  const sc  = STATUS_CONFIG[task.status]
+  const pc  = PRIORITY_CONFIG[task.priority]
+  const done = task.status === 'done'
+  const over = isOverdue(task.dueDate, task.status)
+
+  return (
+    <div
+      style={{ display: 'grid', gridTemplateColumns: '1fr 130px 110px 100px 32px', padding: '0 14px', borderBottom: isLast ? 'none' : `1px solid var(--n-border)`, background: hov ? 'var(--n-hover)' : 'var(--n-bg)', cursor: 'pointer', alignItems: 'center', gap: '8px', minHeight: '40px', transition: 'background 0.08s' }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+    >
+      {/* Name */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '9px', overflow: 'hidden' }} onClick={onEdit}>
+        <button
+          onClick={e => { e.stopPropagation(); onToggle() }}
+          style={{ width: 15, height: 15, borderRadius: '3px', border: `1.5px solid ${done ? 'var(--n-green)' : 'var(--n-border)'}`, background: done ? 'var(--n-green)' : 'none', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '9px', transition: 'all 0.12s' }}
+        >
+          {done && '✓'}
+        </button>
+        <span style={{ fontSize: '14px', color: done ? 'var(--n-text3)' : 'var(--n-text)', textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {task.title}
+        </span>
+      </div>
+
+      {/* Status */}
+      <div onClick={onEdit}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 7px', borderRadius: '4px', fontSize: '12px', fontWeight: 500, background: sc.bg, color: sc.color, whiteSpace: 'nowrap' }}>
+          {sc.label}
+        </span>
+      </div>
+
+      {/* Priority */}
+      <div onClick={onEdit}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '2px 7px', borderRadius: '4px', fontSize: '12px', fontWeight: 500, background: pc.bg, color: pc.color }}>
+          {pc.icon} {pc.label}
+        </span>
+      </div>
+
+      {/* Due date */}
+      <div onClick={onEdit} style={{ fontSize: '13px', color: over ? 'var(--n-red)' : task.dueDate ? 'var(--n-text2)' : 'var(--n-text3)', whiteSpace: 'nowrap' }}>
+        {task.dueDate ? formatDate(task.dueDate) : '—'}
+      </div>
+
+      {/* Delete */}
+      <div>
+        {hov && (
+          <button onClick={e => { e.stopPropagation(); onDelete() }}
+            style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--n-text3)', borderRadius: '4px', fontSize: '16px', transition: 'all 0.1s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--n-red-bg)'; e.currentTarget.style.color = 'var(--n-red)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--n-text3)' }}
+          >×</button>
+        )}
+      </div>
+    </div>
   )
 }

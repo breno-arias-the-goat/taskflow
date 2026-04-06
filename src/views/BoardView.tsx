@@ -1,68 +1,98 @@
-import { useState, useCallback } from 'react'
-import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay, closestCorners } from '@dnd-kit/core'
-import type { DragEndEvent } from '@dnd-kit/core'
-import { useAuthStore } from '@/store/auth'
+import { useState, useEffect } from 'react'
+import type { MutableRefObject } from 'react'
+import {
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
+  closestCorners,
+  type DragStartEvent, type DragEndEvent,
+} from '@dnd-kit/core'
 import { useWorkspaceStore } from '@/store/workspace'
-import { createTask, updateTask, deleteTask } from '@/lib/db'
-import { Column } from '@/components/kanban/Column'
-import { TaskCard } from '@/components/kanban/TaskCard'
-import { TaskModal } from '@/components/kanban/TaskModal'
+import { useAuthStore } from '@/store/auth'
+import { updateTask } from '@/lib/db'
 import type { Task, TaskStatus } from '@/lib/types'
+import Column from '@/components/kanban/Column'
+import TaskCard from '@/components/kanban/TaskCard'
+import TaskModal from '@/components/kanban/TaskModal'
 
-const COLS: TaskStatus[] = ['todo', 'in_progress', 'done', 'blocked']
+const COLUMNS: TaskStatus[] = ['todo', 'in_progress', 'blocked', 'done']
 
-export function BoardView({ onNewTaskRef }: { onNewTaskRef?: (fn: () => void) => void }) {
-  const { user }  = useAuthStore()
+export default function BoardView({ newTaskRef }: { newTaskRef: MutableRefObject<(() => void) | null> }) {
   const { tasks, activeWorkspaceId } = useWorkspaceStore()
-  const [dragTask, setDragTask]   = useState<Task | null>(null)
-  const [modalTask, setModalTask] = useState<Partial<Task> | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
+  const { user } = useAuthStore()
+  const uid = user?.uid ?? ''
+
+  const [activeTask, setActiveTask] = useState<Task | null>(null)
+  const [modalTask, setModalTask]   = useState<Task | Partial<Task> | null>(null)
+
+  useEffect(() => {
+    newTaskRef.current = () => setModalTask({ status: 'todo', priority: 'medium', tags: [] })
+  }, [])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  const byStatus = useCallback((s: TaskStatus) =>
-    tasks.filter(t => t.status === s).sort((a, b) => a.order - b.order), [tasks])
+  const byStatus = (s: TaskStatus) => tasks.filter(t => t.status === s).sort((a, b) => a.order - b.order)
 
-  const openNew = useCallback((status: TaskStatus = 'todo') => {
-    setModalTask({ status, workspaceId: activeWorkspaceId!, order: tasks.length })
-    setModalOpen(true)
-  }, [activeWorkspaceId, tasks.length])
+  function onDragStart({ active }: DragStartEvent) {
+    setActiveTask(tasks.find(t => t.id === active.id) ?? null)
+  }
 
-  if (onNewTaskRef) onNewTaskRef(() => openNew())
-
-  const handleDragEnd = async ({ active, over }: DragEndEvent) => {
-    setDragTask(null)
-    if (!over || !user) return
-    const task = tasks.find(t => t.id === active.id)!
-    const newStatus: TaskStatus = COLS.includes(over.id as TaskStatus)
+  async function onDragEnd({ active, over }: DragEndEvent) {
+    setActiveTask(null)
+    if (!over || active.id === over.id) return
+    const dragged = tasks.find(t => t.id === active.id)
+    if (!dragged) return
+    const newStatus = COLUMNS.includes(over.id as TaskStatus)
       ? (over.id as TaskStatus)
-      : (tasks.find(t => t.id === over.id)?.status ?? task.status)
-    if (task.status !== newStatus) await updateTask(user.uid, task.id, { status: newStatus })
+      : tasks.find(t => t.id === over.id)?.status ?? dragged.status
+    if (dragged.status !== newStatus) {
+      await updateTask(uid, dragged.id, { status: newStatus })
+    }
   }
 
-  const handleSave = async (data: Partial<Task>) => {
-    if (!user || !activeWorkspaceId) return
-    if (modalTask?.id) await updateTask(user.uid, modalTask.id, data)
-    else await createTask(user.uid, { workspaceId: activeWorkspaceId, projectId: null, title: data.title ?? '', description: data.description ?? '', status: data.status ?? 'todo', priority: data.priority ?? 'medium', dueDate: data.dueDate ?? null, tags: [], order: tasks.length })
-  }
+  const total   = tasks.length
+  const pending = tasks.filter(t => t.status !== 'done').length
+  const done    = tasks.filter(t => t.status === 'done').length
 
   return (
-    <>
-      <DndContext sensors={sensors} collisionDetection={closestCorners}
-                  onDragStart={({ active }) => setDragTask(tasks.find(t => t.id === active.id) ?? null)}
-                  onDragEnd={handleDragEnd}>
-        <div className="flex gap-5 h-full overflow-x-auto pb-4">
-          {COLS.map(s => (
-            <Column key={s} status={s} tasks={byStatus(s)} onAdd={openNew}
-                    onEdit={t => { setModalTask(t); setModalOpen(true) }}
-                    onDelete={async id => { if (user) await deleteTask(user.uid, id) }} />
+    <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px', background: 'var(--n-bg)' }}>
+      {/* Page title */}
+      <div style={{ marginBottom: '28px' }}>
+        <h1 style={{ fontSize: '28px', fontWeight: 700, color: 'var(--n-text)', margin: 0, letterSpacing: '-0.01em' }}>
+          Minhas Tarefas
+        </h1>
+        <p style={{ fontSize: '13px', color: 'var(--n-text2)', margin: '5px 0 0' }}>
+          {total > 0 ? `${pending} pendentes · ${done} concluídas` : 'Nenhuma tarefa ainda'}
+        </p>
+      </div>
+
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+        <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', paddingBottom: '20px', minWidth: 'max-content' }}>
+          {COLUMNS.map(status => (
+            <Column
+              key={status}
+              status={status}
+              tasks={byStatus(status)}
+              onAddTask={() => setModalTask({ status, priority: 'medium', tags: [] })}
+              onEditTask={(task) => setModalTask(task)}
+            />
           ))}
         </div>
+
         <DragOverlay>
-          {dragTask && <div className="rotate-1 opacity-90"><TaskCard task={dragTask} onEdit={() => {}} onDelete={() => {}} /></div>}
+          {activeTask ? (
+            <div style={{ opacity: 0.92, transform: 'rotate(1.5deg)', pointerEvents: 'none' }}>
+              <TaskCard task={activeTask} />
+            </div>
+          ) : null}
         </DragOverlay>
       </DndContext>
-      {modalOpen && <TaskModal task={modalTask ?? {}} onSave={handleSave} onClose={() => setModalOpen(false)} />}
-    </>
+
+      {modalTask && (
+        <TaskModal
+          task={modalTask}
+          workspaceId={activeWorkspaceId ?? ''}
+          onClose={() => setModalTask(null)}
+        />
+      )}
+    </div>
   )
 }

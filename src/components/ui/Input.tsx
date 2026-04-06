@@ -1,5 +1,4 @@
-import { type InputHTMLAttributes, forwardRef } from 'react'
-import type { ReactNode } from 'react'
+import { type InputHTMLAttributes, forwardRef, type ReactNode } from 'react'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?:    string
@@ -8,20 +7,44 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, leftIcon, className = '', ...props }, ref) => (
-    <div className="flex flex-col gap-1.5 w-full">
-      {label && <label className="text-sm font-medium text-[var(--color-text-secondary)]">{label}</label>}
-      <div className="relative">
+  ({ label, error, leftIcon, className = '', style, ...props }, ref) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
+      {label && (
+        <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
+          {label}
+        </label>
+      )}
+      <div style={{ position: 'relative' }}>
         {leftIcon && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]">{leftIcon}</span>
+          <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center' }}>
+            {leftIcon}
+          </span>
         )}
         <input
           ref={ref}
-          className={`w-full h-10 bg-[var(--color-bg-elevated)] border rounded-[var(--radius-md)] text-[var(--color-text-primary)] text-sm placeholder:text-[var(--color-text-muted)] transition-all outline-none ${leftIcon ? 'pl-9 pr-4' : 'px-4'} ${error ? 'border-[var(--color-danger)] focus:ring-2 focus:ring-[oklch(65%_0.18_25_/_20%)]' : 'border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent-subtle)]'} ${className}`}
+          className={className}
+          style={{
+            width: '100%',
+            height: '40px',
+            background: 'var(--color-bg-elevated)',
+            border: `1px solid ${error ? 'var(--color-danger)' : 'var(--color-border)'}`,
+            borderRadius: '0.625rem',
+            padding: leftIcon ? '0 16px 0 36px' : '0 16px',
+            fontSize: '0.875rem',
+            color: 'var(--color-text-primary)',
+            outline: 'none',
+            transition: 'border-color 0.15s',
+            boxSizing: 'border-box',
+            fontFamily: 'inherit',
+            ...style,
+          }}
+          onFocus={e => { e.currentTarget.style.borderColor = error ? 'var(--color-danger)' : 'var(--color-accent)'; e.currentTarget.style.boxShadow = `0 0 0 3px ${error ? 'oklch(65% 0.18 25 / 15%)' : 'var(--color-accent-subtle)'}` }}
+          onBlur={e =>  { e.currentTarget.style.borderColor = error ? 'var(--color-danger)' : 'var(--color-border)';  e.currentTarget.style.boxShadow = 'none' }}
+          placeholder={props.placeholder}
           {...props}
         />
       </div>
-      {error && <p className="text-xs text-[var(--color-danger)]">{error}</p>}
+      {error && <p style={{ fontSize: '0.75rem', color: 'var(--color-danger)', margin: 0 }}>{error}</p>}
     </div>
   )
 )

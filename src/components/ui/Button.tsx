@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, forwardRef } from 'react'
+import { type ButtonHTMLAttributes, forwardRef, type CSSProperties } from 'react'
 import { Loader2 } from 'lucide-react'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -7,24 +7,24 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean
 }
 
-const V = {
-  primary:   'bg-[var(--color-accent)] text-[var(--color-bg-base)] hover:bg-[var(--color-accent-hover)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-glow)]',
-  secondary: 'bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] border border-[var(--color-border)] hover:bg-[var(--color-bg-overlay)] hover:border-[var(--color-accent)]',
-  ghost:     'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-elevated)]',
-  danger:    'bg-[oklch(65%_0.18_25_/_15%)] text-[var(--color-danger)] border border-[oklch(65%_0.18_25_/_30%)] hover:bg-[oklch(65%_0.18_25_/_25%)]',
-}
-const S = {
-  sm: 'h-8 px-3 text-xs rounded-[var(--radius-md)]',
-  md: 'h-9 px-4 text-sm rounded-[var(--radius-md)]',
-  lg: 'h-11 px-5 text-sm rounded-[var(--radius-lg)]',
+const SIZE_CLASS = { sm: 'h-8 px-3 text-xs', md: 'h-9 px-4 text-sm', lg: 'h-11 px-5 text-sm' }
+
+function getStyle(variant: string, disabled: boolean): CSSProperties {
+  const base: CSSProperties = { borderRadius: '0.625rem', transition: 'all 0.15s', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }
+  if (variant === 'primary')   return { ...base, background: 'var(--color-accent)', color: 'var(--color-bg-base)', border: 'none' }
+  if (variant === 'secondary') return { ...base, background: 'var(--color-bg-elevated)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)' }
+  if (variant === 'ghost')     return { ...base, background: 'transparent', color: 'var(--color-text-secondary)', border: 'none' }
+  if (variant === 'danger')    return { ...base, background: 'oklch(65% 0.18 25 / 15%)', color: 'var(--color-danger)', border: '1px solid oklch(65% 0.18 25 / 30%)' }
+  return base
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', loading, disabled, children, className = '', ...props }, ref) => (
+  ({ variant = 'primary', size = 'md', loading, disabled, children, className = '', style, ...props }, ref) => (
     <button
       ref={ref}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 font-medium transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none ${V[variant]} ${S[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 font-medium select-none ${SIZE_CLASS[size]} ${className}`}
+      style={{ ...getStyle(variant, !!(disabled || loading)), ...style }}
       {...props}
     >
       {loading && <Loader2 size={14} className="animate-spin" />}
